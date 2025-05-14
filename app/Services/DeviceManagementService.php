@@ -4,22 +4,17 @@ namespace App\Services;
 
 use App\Models\User;
 use App\Models\UserDevice;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 class DeviceManagementService
 {
     public function findOrCreatePendingDeviceForUser(User $user, string $deviceIdentifier, ?string $deviceName, string $ipAddress): UserDevice
     {
-        $device = $user->devices()->firstOrNew(
-            ['device_identifier' => $deviceIdentifier],
-            [
-                'name' => $deviceName ?: 'Unknown Device (' . now()->toDateTimeString() . ')',
-                'status' => UserDevice::STATUS_PENDING,
-                'last_login_ip' => $ipAddress,
-            ]
-        );
+        $device = $user->devices()->firstOrNew(['device_identifier' => $deviceIdentifier], ['name' => $deviceName ?: 'Unknown Device (' . now()->toDateTimeString() . ')', 'status' => UserDevice::STATUS_PENDING, 'last_login_ip' => $ipAddress,]);
 
         if (!$device->exists) {
             $device->save();
@@ -30,9 +25,7 @@ class DeviceManagementService
 
     public function updateDeviceLastUsed(User $user, string $deviceIdentifier): bool
     {
-        $device = $user->devices()
-            ->where('device_identifier', $deviceIdentifier)
-            ->where('status', UserDevice::STATUS_APPROVED) // Hanya update jika approved
+        $device = $user->devices()->where('device_identifier', $deviceIdentifier)->where('status', UserDevice::STATUS_APPROVED) // Hanya update jika approved
             ->first();
 
         if ($device) {
@@ -43,19 +36,25 @@ class DeviceManagementService
 
     public function getDeviceForUserByIdentifier(User $user, string $deviceIdentifier): ?UserDevice
     {
-         return $user->devices()
-            ->where('device_identifier', $deviceIdentifier)
-            ->first();
+        return $user->devices()->where('device_identifier', $deviceIdentifier)->first();
     }
 
-    public function listUserDevices(User $user): \Illuminate\Database\Eloquent\Collection
+    public function listUserDevices(User $user): Collection
     {
-        return $user->devices()->select(['id', 'name', 'device_identifier', 'status', 'last_used_at', 'admin_notes'])->get();
+        return $user->devices()->select([
+            'id',
+            'user_id',
+            'name',
+            'device_identifier',
+            'status',
+            'last_used_at',
+            'admin_notes'
+        ])->get();
     }
 
     public function listAllDevicesFiltered(?string $status, int $perPage = 15): LengthAwarePaginator
     {
-        $query = UserDevice::with('user:id,name,email', 'approver:id,name');
+        $query = UserDevice::with(['user:id,name,email', 'approver:id,name']);
 
         if ($status) {
             $query->where('status', $status);
@@ -87,14 +86,11 @@ class DeviceManagementService
                 if (!$targetUser) {
                     Log::critical("DeviceManagementService: User relationship is null for UserDevice ID: {$deviceToApprove->id}. Cannot proceed with approval.");
                     // Sebaiknya lempar exception agar transaksi di-rollback dan error jelas
-                    throw new \RuntimeException("Associated user not found for the device being approved (ID: {$deviceToApprove->id}).");
+                    throw new RuntimeException("Associated user not found for the device being approved (ID: {$deviceToApprove->id}).");
                 }
             }
 
-            $oldApprovedDevice = $targetUser->devices()
-                ->where('status', UserDevice::STATUS_APPROVED)
-                ->where('id', '!=', $deviceToApprove->id)
-                ->first();
+            $oldApprovedDevice = $targetUser->devices()->where('status', UserDevice::STATUS_APPROVED)->where('id', '!=', $deviceToApprove->id)->first();
 
             if ($oldApprovedDevice) {
                 $this->revokeOldDeviceInternal($oldApprovedDevice, $targetUser, $admin, 'Automatically revoked due to approval of new device: ' . $deviceToApprove->name);
@@ -109,6 +105,23 @@ class DeviceManagementService
             // event(new DeviceApproved($deviceToApprove));
             return $deviceToApprove->fresh();
         });
+    }
+
+    private function revokeOldDeviceInternal(UserDevice $oldDevice, User $targetUser, User $admin, string $reason): void
+    {
+        $oldDevice->status = UserDevice::STATUS_REVOKED;
+        $oldDevice->admin_notes = ($oldDevice->admin_notes ? "{$oldDevice->admin_notes}\n" : '') . $reason . ' by ' . $admin->name . ' on ' . now()->toDateTimeString();
+        $oldDevice->save();
+        $this->revokeTokenForDevice($oldDevice, $targetUser);
+    }
+
+    private function revokeTokenForDevice(UserDevice $device, ?User $user = null): void
+    {
+        $targetUser = $user ?? $device->user;
+        if ($targetUser) {
+            $tokenName = 'auth_token_user_' . $targetUser->id . '_device_' . $device->id;
+            $targetUser->tokens()->where('name', $tokenName)->delete();
+        }
     }
 
     public function rejectDevice(UserDevice $deviceToReject, User $admin, string $notes): UserDevice
@@ -138,55 +151,22 @@ class DeviceManagementService
      * Registers a device for a user by an admin.
      * Enforces one-device-per-user policy.
      */
-    public function registerDeviceForUserByAdmin(
-        User $targetUser,
-        string $deviceIdentifier,
-        string $deviceName,
-        User $admin,
-        ?string $notes
-    ): UserDevice {
+    public function registerDeviceForUserByAdmin(User $targetUser, string $deviceIdentifier, string $deviceName, User $admin, ?string $notes): UserDevice
+    {
         return DB::transaction(function () use ($targetUser, $deviceIdentifier, $deviceName, $admin, $notes) {
-            $oldApprovedDevice = $targetUser->devices()
-                ->where('status', UserDevice::STATUS_APPROVED)
+            $oldApprovedDevice = $targetUser->devices()->where('status', UserDevice::STATUS_APPROVED)
                 // Jika admin mendaftarkan device_identifier yang sama, jangan cabut dirinya sendiri.
                 // Ini berarti kita update/re-approve.
-                ->where('device_identifier', '!=', $deviceIdentifier)
-                ->first();
+                ->where('device_identifier', '!=', $deviceIdentifier)->first();
 
             if ($oldApprovedDevice) {
-                 $this->revokeOldDeviceInternal($oldApprovedDevice, $targetUser, $admin, 'Automatically revoked due to admin registration of new device: ' . $deviceName);
+                $this->revokeOldDeviceInternal($oldApprovedDevice, $targetUser, $admin, 'Automatically revoked due to admin registration of new device: ' . $deviceName);
             }
 
             // Daftarkan atau update dan setujui perangkat BARU/YANG DIMINTA
-            $newDevice = $targetUser->devices()->updateOrCreate(
-                ['device_identifier' => $deviceIdentifier],
-                [
-                    'name' => $deviceName,
-                    'status' => UserDevice::STATUS_APPROVED,
-                    'approved_by' => $admin->id,
-                    'approved_at' => now(),
-                    'admin_notes' => $notes ?: 'Device pre-approved by admin ' . $admin->name . '.',
-                    'user_id' => $targetUser->id, // Pastikan diisi jika create
-                ]
-            );
+            $newDevice = $targetUser->devices()->updateOrCreate(['device_identifier' => $deviceIdentifier], ['name' => $deviceName, 'status' => UserDevice::STATUS_APPROVED, 'approved_by' => $admin->id, 'approved_at' => now(), 'admin_notes' => $notes ?: 'Device pre-approved by admin ' . $admin->name . '.', 'user_id' => $targetUser->id, // Pastikan diisi jika create
+                ]);
             return $newDevice->fresh();
         });
-    }
-
-    private function revokeOldDeviceInternal(UserDevice $oldDevice, User $targetUser, User $admin, string $reason): void
-    {
-        $oldDevice->status = UserDevice::STATUS_REVOKED;
-        $oldDevice->admin_notes = ($oldDevice->admin_notes ? "{$oldDevice->admin_notes}\n" : '') . $reason . ' by ' . $admin->name . ' on ' . now()->toDateTimeString();
-        $oldDevice->save();
-        $this->revokeTokenForDevice($oldDevice, $targetUser);
-    }
-
-    private function revokeTokenForDevice(UserDevice $device, ?User $user = null): void
-    {
-        $targetUser = $user ?? $device->user;
-        if ($targetUser) {
-            $tokenName = 'auth_token_user_' . $targetUser->id . '_device_' . $device->id;
-            $targetUser->tokens()->where('name', $tokenName)->delete();
-        }
     }
 }

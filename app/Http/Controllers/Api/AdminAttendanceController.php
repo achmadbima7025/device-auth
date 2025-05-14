@@ -2,30 +2,34 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
-use App\Http\Requests\AssignWorkScheduleRequest;
-use App\Http\Requests\AttendanceCorrectionRequest;
-use App\Http\Requests\AttendanceReportRequest;
-use App\Http\Requests\UpdateAttendanceSettingsRequest;
-use App\Http\Requests\WorkScheduleRequest;
-use App\Http\Resources\AttendanceCollection;
-use App\Http\Resources\AttendanceResource;
-use App\Http\Resources\UserWorkScheduleAssignmentResource;
-use App\Http\Resources\WorkScheduleResource;
-use App\Models\Attendance;
-use App\Models\AttendanceSetting;
+use Exception;
 use App\Models\User;
+use App\Models\Attendance;
 use App\Models\WorkSchedule;
-use App\Services\Attendance\AttendanceService;
-use App\Services\Attendance\QrCodeService;
-use App\Services\Attendance\WorkScheduleService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use App\Models\AttendanceSetting;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
+use App\Http\Controllers\Controller;
+use App\Models\QrCode as QrCodeModel;
+use Illuminate\Database\QueryException;
+use App\Http\Requests\WorkScheduleRequest;
+use App\Http\Resources\AttendanceResource;
+use App\Models\UserWorkScheduleAssignment;
+use App\Services\Attendance\QrCodeService;
+use App\Http\Resources\AttendanceCollection;
+use App\Http\Resources\WorkScheduleResource;
+use App\Http\Requests\AttendanceReportRequest;
+use App\Services\Attendance\AttendanceService;
 use Illuminate\Validation\ValidationException;
+use App\Http\Requests\AssignWorkScheduleRequest;
+use App\Services\Attendance\WorkScheduleService;
+use App\Http\Requests\AttendanceCorrectionRequest;
+use App\Http\Requests\UpdateAttendanceSettingsRequest;
+use App\Http\Resources\UserWorkScheduleAssignmentResource;
+use App\Http\Resources\UserWorkScheduleAssignmentCollection;
 
 class AdminAttendanceController extends Controller
 {
@@ -33,8 +37,8 @@ class AdminAttendanceController extends Controller
         protected readonly AttendanceService $attendanceService,
         protected readonly QrCodeService $qrCodeService,
         protected readonly WorkScheduleService $workScheduleService
-    ) {
-        // Middleware 'is.admin' sebaiknya diterapkan pada grup rute di api.php
+    )
+    {
     }
 
     /**
@@ -49,18 +53,17 @@ class AdminAttendanceController extends Controller
             $validated = $request->validated();
             $query = Attendance::with([
                 'user:id,name,email',
-                'workSchedule:id,name', // Eager load relasi yang relevan
+                'workSchedule:id,name',
                 'clockInDevice:id,name',
-                'clockOutDevice:id,name'
+                'clockOutDevice:id,name',
             ]);
 
             if (isset($validated['start_date']) && isset($validated['end_date'])) {
                 $query->whereBetween('work_date', [
                     Carbon::parse($validated['start_date'])->startOfDay(),
-                    Carbon::parse($validated['end_date'])->endOfDay()
+                    Carbon::parse($validated['end_date'])->endOfDay(),
                 ]);
             }
-            // Filter lainnya
             if (isset($validated['user_id'])) $query->where('user_id', $validated['user_id']);
             if (isset($validated['work_schedule_id'])) $query->where('work_schedule_id', $validated['work_schedule_id']);
             if (isset($validated['clock_in_status'])) $query->where('clock_in_status', $validated['clock_in_status']);
@@ -69,8 +72,8 @@ class AdminAttendanceController extends Controller
             $sortBy = $validated['sort_by'] ?? 'work_date';
             $sortDirection = $validated['sort_direction'] ?? 'desc';
             $query->orderBy($sortBy, $sortDirection);
-            if ($sortBy !== 'id') { // Tambahan sort untuk konsistensi paginasi
-                $query->orderBy('id', $sortDirection);
+            if ($sortBy !== 'id' && $sortBy !== $query->getModel()->getKeyName()) {
+                $query->orderBy($query->getModel()->getKeyName(), $sortDirection);
             }
 
             $perPage = $validated['per_page'] ?? 15;
@@ -78,7 +81,7 @@ class AdminAttendanceController extends Controller
 
             return new AttendanceCollection($reports);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Error fetching admin attendance reports: {$e->getMessage()}", ['trace' => $e->getTraceAsString()]);
             return response()->json(['message' => 'An internal server error occurred while fetching reports.'], 500);
         }
@@ -97,42 +100,49 @@ class AdminAttendanceController extends Controller
         Log::info("Admin {$admin->id} ({$admin->email}) is attempting to correct attendance ID: {$attendance->id}");
 
         $validatedData = $request->validated();
-        $dataToUpdate = []; // Array untuk menampung data yang akan diupdate ke service
+        $dataToPassToService = [];
 
-        // Logika untuk mem-parse waktu (yang dikirim sebagai H:i:s) dan menggabungkannya dengan tanggal kerja
-        $baseDateForTime = isset($validatedData['work_date']) ? Carbon::parse($validatedData['work_date']) : $attendance->work_date;
+        // Tentukan tanggal dasar untuk waktu. Jika work_date diubah, gunakan itu.
+        // Jika tidak, gunakan tanggal kerja yang ada di record absensi.
+        $baseDateForTime = isset($validatedData['work_date'])
+            ? Carbon::parse($validatedData['work_date'])
+            : $attendance->work_date; // Ini sudah objek Carbon dari model
 
         if (isset($validatedData['work_date'])) {
-            $dataToUpdate['work_date'] = $baseDateForTime; // Sudah jadi objek Carbon
+            $dataToPassToService['work_date'] = Carbon::parse($validatedData['work_date'])->startOfDay();
         }
+
+        // Penting: Asumsikan admin input H:i:s dalam timezone aplikasi (UTC) atau frontend sudah konversi ke UTC.
+        // Jika frontend kirim datetime lengkap dengan timezone, parsing akan lebih mudah.
         if (isset($validatedData['clock_in_at_time'])) {
-            $dataToUpdate['clock_in_at'] = Carbon::parse($baseDateForTime->toDateString() . ' ' . $validatedData['clock_in_at_time']);
+            $dataToPassToService['clock_in_at'] = Carbon::parse($baseDateForTime->toDateString() . ' ' . $validatedData['clock_in_at_time'], config('app.timezone'));
         }
         if (isset($validatedData['clock_out_at_time'])) {
-            $dataToUpdate['clock_out_at'] = Carbon::parse($baseDateForTime->toDateString() . ' ' . $validatedData['clock_out_at_time']);
-            // Handle lintas hari jika clock_out < clock_in pada tanggal yang sama (setelah digabung dengan baseDateForTime)
-            $clockInToCompare = $dataToUpdate['clock_in_at'] ?? $attendance->clock_in_at;
-            if ($clockInToCompare && $dataToUpdate['clock_out_at']->lt($clockInToCompare)) {
-                $dataToUpdate['clock_out_at']->addDay();
+            if ($validatedData['clock_out_at_time'] === null || $validatedData['clock_out_at_time'] === '') { // Handle jika admin ingin mengosongkan clock_out
+                $dataToPassToService['clock_out_at'] = null;
+            } else {
+                $dataToPassToService['clock_out_at'] = Carbon::parse($baseDateForTime->toDateString() . ' ' . $validatedData['clock_out_at_time'], config('app.timezone'));
+                // Penanganan lintas hari jika clock_out < clock_in pada tanggal yang sama
+                $clockInToCompare = $dataToPassToService['clock_in_at'] ?? $attendance->clock_in_at;
+                if ($clockInToCompare && $dataToPassToService['clock_out_at'] && $dataToPassToService['clock_out_at']->lt($clockInToCompare)) {
+                    $dataToPassToService['clock_out_at']->addDay();
+                }
             }
         }
 
-        // Salin field lain yang divalidasi dan mungkin diubah
-        $otherFields = ['clock_in_status', 'clock_in_notes', 'clock_out_status', 'clock_out_notes', 'work_schedule_id'];
+        // Salin field lain yang divalidasi
+        $otherFields = ['clock_in_status', 'clock_in_notes', 'clock_out_status', 'clock_out_notes', 'work_schedule_id', 'admin_correction_notes'];
         foreach ($otherFields as $field) {
             if (array_key_exists($field, $validatedData)) {
-                $dataToUpdate[$field] = $validatedData[$field];
+                $dataToPassToService[$field] = $validatedData[$field];
             }
         }
-        // Alasan koreksi wajib dari FormRequest
-        $dataToUpdate['admin_correction_notes'] = $validatedData['admin_correction_notes'];
 
         try {
-            $updatedAttendance = $this->attendanceService->correctAttendance($attendance, $dataToUpdate, $admin);
+            $updatedAttendance = $this->attendanceService->correctAttendance($attendance, $dataToPassToService, $admin);
             return response()->json([
                 'message' => 'Attendance record corrected successfully.',
-                // Eager load relasi yang mungkin relevan untuk ditampilkan kembali
-                'data' => new AttendanceResource($updatedAttendance->fresh()->load(['user:id,name', 'workSchedule:id,name', 'correctionLogs.admin:id,name']))
+                'data' => new AttendanceResource($updatedAttendance->fresh()->load(['user:id,name', 'workSchedule:id,name', 'correctionLogs.admin:id,name'])),
             ]);
         } catch (ValidationException $e) {
             Log::warning("Validation error during attendance correction by admin {$admin->id} for attendance ID {$attendance->id}: " . $e->getMessage(), ['errors' => $e->errors()]);
@@ -140,7 +150,7 @@ class AdminAttendanceController extends Controller
                 'message' => $e->getMessage(),
                 'errors' => $e->errors(),
             ], $e->status);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Error correcting attendance ID {$attendance->id} by admin {$admin->id}: {$e->getMessage()}", ['trace' => $e->getTraceAsString()]);
             return response()->json(['message' => 'Failed to correct attendance record.', 'error' => $e->getMessage()], 500);
         }
@@ -152,9 +162,8 @@ class AdminAttendanceController extends Controller
     public function getSettings(): JsonResponse
     {
         $settings = AttendanceSetting::orderBy('group')->orderBy('key')->get();
-        // Format agar lebih mudah di frontend: group => { key: value }
         $formattedSettings = $settings->groupBy('group')->mapWithKeys(function ($groupItems, $groupName) {
-            return [$groupName => $groupItems->pluck('value', 'key')]; // Accessor di model akan meng-cast value
+            return [$groupName => $groupItems->pluck('value', 'key')];
         });
         return response()->json($formattedSettings);
     }
@@ -164,19 +173,17 @@ class AdminAttendanceController extends Controller
      */
     public function updateSettings(UpdateAttendanceSettingsRequest $request): JsonResponse
     {
-        $settingsData = $request->validated()['settings']; // Ambil dari 'settings' key yang sudah divalidasi
+        $settingsData = $request->validated()['settings'];
         $allSettingsInDb = AttendanceSetting::all()->keyBy('key');
 
         DB::transaction(function () use ($settingsData, $allSettingsInDb) {
             foreach ($settingsData as $key => $value) {
                 if ($allSettingsInDb->has($key)) {
                     $settingToUpdate = $allSettingsInDb->get($key);
-                    // Mutator di model AttendanceSetting akan menangani casting dan penyimpanan
                     $settingToUpdate->value = $value;
                     $settingToUpdate->save();
                 } else {
                     Log::warning("Attempted to update non-existent attendance setting key: {$key}");
-                    // Pertimbangkan untuk melempar error atau mengabaikan key yang tidak dikenal
                 }
             }
         });
@@ -185,30 +192,28 @@ class AdminAttendanceController extends Controller
     }
 
     // --- QR Code Management (Admin) ---
-    public function generateDailyQr(Request $request): JsonResponse // Bisa dibuatkan FormRequest sendiri jika validasi kompleks
+    public function generateDailyQr(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'location_name' => 'sometimes|string|max:100',
             'work_schedule_id' => 'sometimes|nullable|integer|exists:work_schedules,id',
-            'additional_payload' => 'sometimes|array'
+            'additional_payload' => 'sometimes|array',
         ]);
         $locationName = $validated['location_name'] ?? 'Main Office Default';
         $workScheduleId = $validated['work_schedule_id'] ?? null;
 
         try {
             $qrCodeModel = $this->qrCodeService->generateDailyAttendanceQr($locationName, $workScheduleId, $validated['additional_payload'] ?? []);
-
-            // Data yang akan di-encode ke gambar QR adalah additional_payload dari model QrCode
             $qrImageDataUri = $this->qrCodeService->generateQrCodeImageUri(
-                json_encode($qrCodeModel->additional_payload), // Pastikan ini adalah data yang ingin dipindai klien
+                json_encode($qrCodeModel->additional_payload),
                 "Attendance {$locationName} - " . $qrCodeModel->valid_on_date->format('d M Y')
             );
             return response()->json([
                 'message' => 'Daily QR Code generated successfully.',
-                'qr_code_data' => $qrCodeModel->toArray(), // Atau gunakan QrCodeResource jika ada
+                'qr_code_data' => $qrCodeModel->toArray(),
                 'qr_code_image_uri' => $qrImageDataUri,
             ]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Failed to generate daily QR Code: {$e->getMessage()}", ['trace' => $e->getTraceAsString()]);
             return response()->json(['message' => 'Failed to generate daily QR Code.', 'error' => $e->getMessage()], 500);
         }
@@ -234,29 +239,75 @@ class AdminAttendanceController extends Controller
             "Attendance {$locationName} - " . $qrCodeModel->valid_on_date->format('d M Y')
         );
         return response()->json([
-            'qr_code_data' => $qrCodeModel->toArray(), // Atau gunakan QrCodeResource
+            'qr_code_data' => $qrCodeModel->toArray(),
             'qr_code_image_uri' => $qrImageDataUri,
         ]);
     }
 
     // --- Work Schedule Management (Admin) ---
-    public function listWorkSchedules(Request $request): JsonResponse // Menggunakan JsonResponse untuk konsistensi, bisa juga Resource Collection
+    public function listWorkSchedules(Request $request): JsonResponse
     {
-        // Tambahkan paginasi jika jumlah jadwal banyak
-        $schedules = $this->workScheduleService->getActiveWorkSchedules(); // Hanya yang aktif
+        // Bisa ditambahkan paginasi jika diperlukan
+        $perPage = $request->query('per_page', 15);
+        $schedules = WorkSchedule::orderBy('name')->paginate($perPage);
         return WorkScheduleResource::collection($schedules)->response();
     }
 
-    public function createWorkSchedule(WorkScheduleRequest $request): JsonResponse // Menggunakan FormRequest
+    public function createWorkSchedule(WorkScheduleRequest $request): JsonResponse
     {
         $schedule = $this->workScheduleService->createWorkSchedule($request->validated());
-        return new WorkScheduleResource($schedule->fresh()) // Ambil data terbaru
-        ->additional(['message' => 'Work schedule created successfully.'])
+        return new WorkScheduleResource($schedule->fresh())
+            ->additional(['message' => 'Work schedule created successfully.'])
             ->response()
-            ->setStatusCode(201); // HTTP 201 Created
+            ->setStatusCode(201);
     }
 
-    public function updateWorkSchedule(WorkScheduleRequest $request, WorkSchedule $workSchedule): JsonResponse // Route Model Binding
+    public function showWorkSchedule(WorkSchedule $workSchedule): WorkScheduleResource|JsonResponse
+    {
+        // Pastikan workSchedule di-load jika ada relasi yang ingin ditampilkan oleh resource
+        // $workSchedule->loadMissing([]); // Contoh: $workSchedule->loadMissing('userAssignments.user');
+        return new WorkScheduleResource($workSchedule);
+    }
+
+    public function deleteWorkSchedule(WorkSchedule $workSchedule): JsonResponse
+    {
+        try {
+            // Tambahkan logika untuk mengecek apakah jadwal kerja masih digunakan
+            // sebelum menghapus, misalnya di UserWorkScheduleAssignment atau Attendance.
+            if ($workSchedule->userAssignments()->exists() || $workSchedule->attendances()->exists()) {
+                return response()->json(['message' => 'Cannot delete work schedule. It is still in use.'], 409); // Conflict
+            }
+            DB::transaction(function () use ($workSchedule) {
+                // Jika ada aturan terkait penghapusan assignment atau QR codes yang terkait, handle di sini
+                UserWorkScheduleAssignment::where('work_schedule_id', $workSchedule->id)->delete();
+                QrCodeModel::where('work_schedule_id', $workSchedule->id)->update(['work_schedule_id' => null]); // Atau delete
+                $workSchedule->delete();
+            });
+
+            return response()->json(['message' => 'Work schedule deleted successfully.'], 200);
+        } catch (QueryException $e) {
+            // Tangani error foreign key constraint jika ada
+            Log::error("Error deleting work schedule ID {$workSchedule->id}: {$e->getMessage()}");
+            return response()->json(['message' => 'Failed to delete work schedule. It might be in use or a database error occurred.'], 500);
+        } catch (Exception $e) {
+            Log::error("Error deleting work schedule ID {$workSchedule->id}: {$e->getMessage()}");
+            return response()->json(['message' => 'An unexpected error occurred.'], 500);
+        }
+    }
+
+    public function listUserScheduleAssignments(Request $request, User $user): UserWorkScheduleAssignmentCollection|JsonResponse
+    {
+        // Validasi tambahan untuk request jika perlu (misal, filter tanggal)
+        $perPage = $request->query('per_page', 15);
+        $assignments = UserWorkScheduleAssignment::where('user_id', $user->id)
+                                                 ->with(['workSchedule:id,name', 'assignedBy:id,name'])
+                                                 ->orderBy('effective_start_date', 'desc')
+                                                 ->paginate($perPage);
+
+        return new UserWorkScheduleAssignmentCollection($assignments);
+    }
+
+    public function updateWorkSchedule(WorkScheduleRequest $request, WorkSchedule $workSchedule): JsonResponse
     {
         $schedule = $this->workScheduleService->updateWorkSchedule($workSchedule, $request->validated());
         return new WorkScheduleResource($schedule->fresh())
@@ -264,12 +315,12 @@ class AdminAttendanceController extends Controller
             ->response();
     }
 
-    public function assignScheduleToUser(AssignWorkScheduleRequest $request): JsonResponse // Menggunakan FormRequest
+    public function assignScheduleToUser(AssignWorkScheduleRequest $request): JsonResponse
     {
         $validatedData = $request->validated();
         $user = User::findOrFail($validatedData['user_id']);
         $workSchedule = WorkSchedule::findOrFail($validatedData['work_schedule_id']);
-        $admin = $request->user(); // Admin yang melakukan aksi
+        $admin = $request->user();
 
         $assignment = $this->workScheduleService->assignScheduleToUser(
             $user,
@@ -279,7 +330,6 @@ class AdminAttendanceController extends Controller
             $admin,
             $validatedData['assignment_notes'] ?? null
         );
-        // Eager load relasi untuk respons yang lebih informatif
         return new UserWorkScheduleAssignmentResource($assignment->load(['user:id,name', 'workSchedule:id,name', 'assignedBy:id,name']))
             ->additional(['message' => 'Work schedule assigned to user successfully.'])
             ->response()

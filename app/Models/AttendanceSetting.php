@@ -9,19 +9,27 @@ class AttendanceSetting extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'key',
-        'value',
-        'data_type',
-        'description',
-        'group',
-        // 'scope_type', // Jika ada scope
+    protected $fillable = ['key', 'value', 'data_type', 'description', 'group', // 'scope_type', // Jika ada scope
         // 'scope_id',   // Jika ada scope
     ];
 
-    protected $casts = [
-        // Casting akan dilakukan di accessor/mutator berdasarkan 'data_type'
+    protected $casts = [// Casting akan dilakukan di accessor/mutator berdasarkan 'data_type'
     ];
+
+    public static function getByKey(string $key, $default = null, $scopeType = 'global', $scopeId = null)
+    {
+        // Implementasi scope jika ada
+        // $query = self::where('key', $key)->where('scope_type', $scopeType);
+        // if ($scopeId) {
+        //     $query->where('scope_id', $scopeId);
+        // } else {
+        //     $query->whereNull('scope_id');
+        // }
+        // $setting = $query->first();
+
+        $setting = self::where('key', $key)->first(); // Versi sederhana tanpa scope
+        return $setting ? $setting->value : $default;
+    }
 
     public function getValueAttribute($originalValue)
     {
@@ -59,20 +67,5 @@ class AttendanceSetting extends Model
         } else {
             $this->attributes['value'] = $inputValue;
         }
-    }
-
-    public static function getByKey(string $key, $default = null, $scopeType = 'global', $scopeId = null)
-    {
-        // Implementasi scope jika ada
-        // $query = self::where('key', $key)->where('scope_type', $scopeType);
-        // if ($scopeId) {
-        //     $query->where('scope_id', $scopeId);
-        // } else {
-        //     $query->whereNull('scope_id');
-        // }
-        // $setting = $query->first();
-
-        $setting = self::where('key', $key)->first(); // Versi sederhana tanpa scope
-        return $setting ? $setting->value : $default;
     }
 }

@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Attendance extends Model
 {
@@ -44,21 +44,12 @@ class Attendance extends Model
         'is_manually_corrected',
         'last_corrected_by',
         'last_correction_at',
-        'correction_summary_notes',
-    ];
+        'correction_summary_notes',];
 
     protected $casts = [
-        'work_date' => 'date',
-        'clock_in_at' => 'datetime',
-        'clock_out_at' => 'datetime',
-        'clock_in_latitude' => 'decimal:7',
-        'clock_in_longitude' => 'decimal:7',
-        'clock_out_latitude' => 'decimal:7',
-        'clock_out_longitude' => 'decimal:7',
-        // 'scheduled_start_time' => 'datetime:H:i:s', // Biarkan string atau parse di accessor jika perlu
+        'work_date' => 'date', 'clock_in_at' => 'datetime', 'clock_out_at' => 'datetime', 'clock_in_latitude' => 'decimal:7', 'clock_in_longitude' => 'decimal:7', 'clock_out_latitude' => 'decimal:7', 'clock_out_longitude' => 'decimal:7', // 'scheduled_start_time' => 'datetime:H:i:s', // Biarkan string atau parse di accessor jika perlu
         // 'scheduled_end_time' => 'datetime:H:i:s',
-        'is_manually_corrected' => 'boolean',
-        'last_correction_at' => 'datetime',
+        'is_manually_corrected' => 'boolean', 'last_correction_at' => 'datetime',
     ];
 
     /**
@@ -145,7 +136,7 @@ class Attendance extends Model
     public function getEffectiveWorkFormattedAttribute(): ?string
     {
         if (is_null($this->effective_work_minutes) || $this->effective_work_minutes < 0) {
-             return '00 Jam 00 Menit';
+            return '00 Jam 00 Menit';
         }
         $hours = floor($this->effective_work_minutes / 60);
         $minutes = $this->effective_work_minutes % 60;

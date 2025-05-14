@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -11,7 +12,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, HasApiTokens;
 
     /**
@@ -19,35 +20,14 @@ class User extends Authenticatable
      *
      * @var list<string>
      */
-    protected $fillable = [
-        'name',
-        'email',
-        'password',
-        'role',
-    ];
+    protected $fillable = ['name', 'email', 'password', 'role',];
 
     /**
      * The attributes that should be hidden for serialization.
      *
      * @var list<string>
      */
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
-
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
+    protected $hidden = ['password', 'remember_token',];
 
     public function devices(): HasMany
     {
@@ -68,6 +48,21 @@ class User extends Authenticatable
     }
 
     /**
+     * Mendapatkan jadwal kerja yang aktif saat ini untuk pengguna.
+     * Ini adalah contoh logika, mungkin perlu penyesuaian.
+     */
+    public function currentWorkSchedule(): ?WorkSchedule
+    {
+        $today = now()->toDateString();
+        $assignment = $this->workScheduleAssignments()->where('effective_start_date', '<=', $today)->where(function ($query) use ($today) {
+                $query->whereNull('effective_end_date')->orWhere('effective_end_date', '>=', $today);
+            })->orderBy('effective_start_date', 'desc') // Ambil yang paling baru jika ada overlap (seharusnya tidak)
+            ->first();
+
+        return $assignment ? $assignment->workSchedule : WorkSchedule::where('is_default', true)->where('is_active', true)->first();
+    }
+
+    /**
      * Mendapatkan semua penugasan jadwal kerja untuk pengguna ini.
      */
     public function workScheduleAssignments(): HasMany
@@ -76,29 +71,20 @@ class User extends Authenticatable
     }
 
     /**
-     * Mendapatkan jadwal kerja yang aktif saat ini untuk pengguna.
-     * Ini adalah contoh logika, mungkin perlu penyesuaian.
-     */
-    public function currentWorkSchedule(): ?WorkSchedule
-    {
-        $today = now()->toDateString();
-        $assignment = $this->workScheduleAssignments()
-                            ->where('effective_start_date', '<=', $today)
-                            ->where(function ($query) use ($today) {
-                                $query->whereNull('effective_end_date')
-                                      ->orWhere('effective_end_date', '>=', $today);
-                            })
-                            ->orderBy('effective_start_date', 'desc') // Ambil yang paling baru jika ada overlap (seharusnya tidak)
-                            ->first();
-
-        return $assignment ? $assignment->workSchedule : WorkSchedule::where('is_default', true)->where('is_active',true)->first();
-    }
-
-    /**
      * Mendapatkan log koreksi absensi yang dilakukan oleh admin ini.
      */
     public function attendanceCorrectionsMade(): HasMany
     {
         return $this->hasMany(AttendanceCorrectionLog::class, 'admin_user_id');
+    }
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return ['email_verified_at' => 'datetime', 'password' => 'hashed',];
     }
 }

@@ -10,17 +10,22 @@ class QrCode extends Model
 {
     use HasFactory;
 
+    public const string TYPE_DAILY = 'daily';
+    public const string TYPE_STATIC_LOCATION = 'static_location';
+    public const string TYPE_SINGLE_USE = 'single_use';
+public const string TYPE_SHIFT_SPECIFIC = 'shift_specific';
+
     protected $fillable = [
-        'unique_code',
-        'type',
-        'related_location_name',
-        'work_schedule_id', // Kolom baru ditambahkan
-        'additional_payload',
-        'valid_on_date',
-        'expires_at',
-        'used_at',
-        'used_by_user_id',
         'is_active',
+        'used_by_user_id',
+        'used_at',
+        'expires_at',
+        'valid_on_date',
+        'additional_payload',
+        'work_schedule_id',
+        'related_location_name',
+        'type',
+        'unique_code',
     ];
 
     protected $casts = [
@@ -50,13 +55,16 @@ class QrCode extends Model
     /**
      * Scope untuk mendapatkan QR Code yang aktif.
      */
+    /**
+     * Scope untuk mendapatkan QR Code yang aktif.
+     */
     public function scopeActive($query)
     {
         return $query->where('is_active', true)
-                     ->where(function ($q) {
-                         $q->whereNull('expires_at')
-                           ->orWhere('expires_at', '>', now());
-                     });
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            });
     }
 
     /**
@@ -64,7 +72,7 @@ class QrCode extends Model
      */
     public function scopeValidToday($query)
     {
-        return $query->where('type', 'daily')
-                     ->where('valid_on_date', today());
+        return $query->where('type', self::TYPE_DAILY) // Menggunakan konstanta
+            ->where('valid_on_date', today());
     }
 }

@@ -15,24 +15,11 @@ class UserDevice extends Model
     public const string STATUS_REJECTED = 'rejected';
     public const string STATUS_REVOKED = 'revoked';
 
-    protected $fillable = [
-        'user_id',
-        'device_identifier',
-        'name',
-        'status',
-        'approved_by',
-        'approved_at',
-        'admin_notes',
-        'last_login_ip',
-        'last_used_at',
-    ];
+    protected $fillable = ['user_id', 'device_identifier', 'name', 'status', 'approved_by', 'approved_at', 'admin_notes', 'last_login_ip', 'last_used_at',];
 
     public function casts(): array
     {
-        return [
-            'last_used_at' => 'datetime',
-            'approved_at' => 'datetime',
-        ];
+        return ['last_used_at' => 'datetime', 'approved_at' => 'datetime',];
     }
 
     public function user(): BelongsTo

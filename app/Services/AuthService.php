@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\User;
 use App\Models\UserDevice;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AuthService
@@ -14,35 +15,24 @@ class AuthService
         $user = User::where('email', $credentials['email'])->first();
 
         if (!$user || !Hash::check($credentials['password'], $user->password)) {
-            throw ValidationException::withMessages([
-                'email' => [__('auth.failed')],
-            ]);
+            throw ValidationException::withMessages(['email' => [__('auth.failed')],]);
         }
 
         // Cek atau buat entri perangkat
-        $device = $user->devices()->firstOrNew(
-            ['device_identifier' => $deviceIdentifier],
-            [
-                'name' => $deviceName ?: 'Unknown Device (' . now()->toDateTimeString() . ')',
-                'status' => UserDevice::STATUS_PENDING, // Default ke pending jika baru
+        $device = $user->devices()->firstOrNew(['device_identifier' => $deviceIdentifier], ['name' => $deviceName ?: 'Unknown Device (' . now()->toDateTimeString() . ')', 'status' => UserDevice::STATUS_PENDING, // Default ke pending jika baru
                 'last_login_ip' => $ipAddress, // Diisi saat ini
-            ]
-        );
+            ]);
 
         if (!$device->exists) {
             $device->save();
             // Bisa trigger event untuk notifikasi admin
             // event(new NewDevicePendingApproval($device));
-            throw ValidationException::withMessages([
-                'device_status' => 'Device registration request received. Please wait for admin approval.',
-            ])->status(403); // Menggunakan status 403 untuk ini
+            throw ValidationException::withMessages(['device_status' => 'Device registration request received. Please wait for admin approval.',])->status(403); // Menggunakan status 403 untuk ini
         }
 
         if (!$device->isApproved()) {
             $message = $this->getDeviceStatusMessage($device);
-            throw ValidationException::withMessages([
-                'device_status' => $message,
-            ])->status(403);
+            throw ValidationException::withMessages(['device_status' => $message,])->status(403);
         }
 
         $device->last_login_ip = $ipAddress;
@@ -55,21 +45,7 @@ class AuthService
 
         $token = $user->createToken($tokenName)->plainTextToken;
 
-        return [
-            'access_token' => $token,
-            'user' => $user->only(['id', 'name', 'email', 'role']),
-            'device' => $device->only(['id', 'device_identifier', 'name', 'status']),
-        ];
-    }
-
-    public function logoutUser(User $user): void
-    {
-        $user->currentAccessToken()->delete();
-    }
-
-    public function getUserDetails(User $user): array
-    {
-        return $user->only(['id', 'name', 'email']);
+        return ['access_token' => $token, 'user' => $user->only(['id', 'name', 'email', 'role']), 'device' => $device->only(['id', 'device_identifier', 'name', 'status']),];
     }
 
     private function getDeviceStatusMessage(UserDevice $device): string
@@ -92,5 +68,15 @@ class AuthService
             default:
                 return 'Device access denied.';
         }
+    }
+
+    public function logoutUser(User $user): void
+    {
+        $user->tokens()->delete();
+    }
+
+    public function getUserDetails(User $user): array
+    {
+        return $user->only(['id', 'name', 'email']);
     }
 }

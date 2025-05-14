@@ -12,19 +12,9 @@ class UserWorkScheduleAssignment extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'user_id',
-        'work_schedule_id',
-        'effective_start_date',
-        'effective_end_date',
-        'assigned_by_user_id',
-        'assignment_notes',
-    ];
+    protected $fillable = ['user_id', 'work_schedule_id', 'effective_start_date', 'effective_end_date', 'assigned_by_user_id', 'assignment_notes',];
 
-    protected $casts = [
-        'effective_start_date' => 'date',
-        'effective_end_date' => 'date',
-    ];
+    protected $casts = ['effective_start_date' => 'date', 'effective_end_date' => 'date',];
 
     /**
      * Mendapatkan pengguna yang ditugaskan jadwal ini.
@@ -61,10 +51,8 @@ class UserWorkScheduleAssignment extends Model
     {
         $targetDate = $date ? Carbon::parse($date)->toDateString() : Carbon::today()->toDateString();
 
-        return $query->where('effective_start_date', '<=', $targetDate)
-            ->where(function ($subQuery) use ($targetDate) {
-                $subQuery->whereNull('effective_end_date')
-                    ->orWhere('effective_end_date', '>=', $targetDate);
+        return $query->where('effective_start_date', '<=', $targetDate)->where(function ($subQuery) use ($targetDate) {
+                $subQuery->whereNull('effective_end_date')->orWhere('effective_end_date', '>=', $targetDate);
             });
     }
 

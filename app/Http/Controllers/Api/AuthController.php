@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
-use App\Services\AuthService;
-use App\Services\DeviceManagementService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\AuthService;
+use Illuminate\Http\JsonResponse;
+use App\Http\Controllers\Controller;
+use App\Services\DeviceManagementService;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -14,7 +14,8 @@ class AuthController extends Controller
 
     public function __construct(
         protected AuthService $authService,
-        protected DeviceManagementService $deviceService)
+        protected DeviceManagementService $deviceService
+    )
     {
         $this->authService = $authService;
         $this->deviceService = $deviceService;
@@ -53,6 +54,12 @@ class AuthController extends Controller
         }
     }
 
+    public function logout(Request $request): JsonResponse
+    {
+        $this->authService->logoutUser($request->user());
+        return response()->json(['message' => 'Logged out successfully']);
+    }
+
     public function user(Request $request): JsonResponse
     {
         $userDetails = $this->authService->getUserDetails($request->user());
@@ -62,12 +69,6 @@ class AuthController extends Controller
             'user' => $userDetails,
             'current_device_info' => $device?->only(['id', 'device_identifier', 'name', 'status']),
         ]);
-    }
-
-    public function logout(Request $request): JsonResponse
-    {
-        $this->authService->logoutUser($request->user());
-        return response()->json(['message' => 'Logged out successfully']);
     }
 
     public function listMyDevices(Request $request): JsonResponse
