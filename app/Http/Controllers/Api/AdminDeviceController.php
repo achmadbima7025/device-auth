@@ -8,6 +8,7 @@ use App\Models\UserDevice;
 use App\Services\DeviceManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class AdminDeviceController extends Controller
 {
@@ -32,25 +33,36 @@ class AdminDeviceController extends Controller
         return response()->json($detailedDevice);
     }
 
-    public function approveDevice(Request $request, UserDevice $device): JsonResponse
+    public function approveDevice(Request $request, UserDevice $userDevice): JsonResponse
     {
         $admin = $request->user(); // Mendapatkan admin yang sedang login
-        $approvedDevice = $this->deviceService->approveDevice($device, $admin, $request->input('notes'));
+        $userDevice->load('user');
+
+        if (!$userDevice->user) {
+            // Log error atau lempar exception, karena ini tidak seharusnya terjadi
+            Log::error("User not found for UserDevice ID: {$userDevice->id} in AdminDeviceController@approveDevice");
+            return response()->json(['message' => 'Internal server error: Associated user not found for the device.'], 500);
+        }
+
+        $approvedDevice = $this->deviceService->approveDevice($userDevice, $admin, $request->input('notes'));
         return response()->json(['message' => 'Device approved successfully.', 'device' => $approvedDevice]);
     }
 
-    public function rejectDevice(Request $request, UserDevice $device): JsonResponse
+    public function rejectDevice(Request $request, UserDevice $userDevice): JsonResponse
     {
         $request->validate(['notes' => 'required|string|max:500']);
         $admin = $request->user();
-        $rejectedDevice = $this->deviceService->rejectDevice($device, $admin, $request->notes);
+        $userDevice->load('user');
+
+        $rejectedDevice = $this->deviceService->rejectDevice($userDevice, $admin, $request->notes);
         return response()->json(['message' => 'Device rejected successfully.', 'device' => $rejectedDevice]);
     }
 
-    public function revokeDevice(Request $request, UserDevice $device): JsonResponse
+    public function revokeDevice(Request $request, UserDevice $userDevice): JsonResponse
     {
         $admin = $request->user();
-        $revokedDevice = $this->deviceService->revokeDevice($device, $admin, $request->input('notes'));
+        $userDevice->load('user');
+        $revokedDevice = $this->deviceService->revokeDevice($userDevice, $admin, $request->input('notes'));
         return response()->json(['message' => 'Device access revoked successfully.', 'device' => $revokedDevice]);
     }
 

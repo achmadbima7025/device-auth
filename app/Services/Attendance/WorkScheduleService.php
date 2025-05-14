@@ -14,10 +14,10 @@ class WorkScheduleService
      * Mendapatkan jadwal kerja yang aktif untuk pengguna pada tanggal tertentu.
      *
      * @param User $user
-     * @param Carbon|string|null $date Tanggal untuk mencari jadwal, default hari ini.
+     * @param string|Carbon|null $date Tanggal untuk mencari jadwal, default hari ini.
      * @return WorkSchedule|null Jadwal kerja yang aktif, atau jadwal default, atau null.
      */
-    public function getUserActiveScheduleForDate(User $user, $date = null): ?WorkSchedule
+    public function getUserActiveScheduleForDate(User $user, Carbon|string|null $date = null): ?WorkSchedule
     {
         $targetDate = $date ? Carbon::parse($date)->toDateString() : Carbon::today()->toDateString();
 

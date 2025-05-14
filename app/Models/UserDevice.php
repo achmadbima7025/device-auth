@@ -10,10 +10,10 @@ class UserDevice extends Model
 {
     use HasFactory;
 
-    public const STATUS_PENDING = 'pending';
-    public const STATUS_APPROVED = 'approved';
-    public const STATUS_REJECTED = 'rejected';
-    public const STATUS_REVOKED = 'revoked';
+    public const string STATUS_PENDING = 'pending';
+    public const string STATUS_APPROVED = 'approved';
+    public const string STATUS_REJECTED = 'rejected';
+    public const string STATUS_REVOKED = 'revoked';
 
     protected $fillable = [
         'user_id',

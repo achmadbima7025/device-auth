@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\UserDevice;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Log;
 
 class DeviceManagementService
 {
@@ -76,6 +77,19 @@ class DeviceManagementService
     {
         return DB::transaction(function () use ($deviceToApprove, $admin, $notes) {
             $targetUser = $deviceToApprove->user;
+
+            if (!$targetUser) {
+                // Coba load relasi jika belum ada
+                $deviceToApprove->load('user');
+                $targetUser = $deviceToApprove->user;
+
+                // Jika masih null, lempar error atau tangani
+                if (!$targetUser) {
+                    Log::critical("DeviceManagementService: User relationship is null for UserDevice ID: {$deviceToApprove->id}. Cannot proceed with approval.");
+                    // Sebaiknya lempar exception agar transaksi di-rollback dan error jelas
+                    throw new \RuntimeException("Associated user not found for the device being approved (ID: {$deviceToApprove->id}).");
+                }
+            }
 
             $oldApprovedDevice = $targetUser->devices()
                 ->where('status', UserDevice::STATUS_APPROVED)

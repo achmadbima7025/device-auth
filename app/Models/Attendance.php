@@ -11,6 +11,8 @@ class Attendance extends Model
 {
     use HasFactory;
 
+    public string $success_message;
+
     protected $fillable = [
         'user_id',
         'work_date',

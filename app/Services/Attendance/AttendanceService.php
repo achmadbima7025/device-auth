@@ -26,9 +26,10 @@ class AttendanceService
 
     // Menggunakan PHP 8.1 Constructor Property Promotion dan Readonly Properties
     public function __construct(
-        protected readonly QrCodeService $qrCodeService,
+        protected readonly QrCodeService       $qrCodeService,
         protected readonly WorkScheduleService $workScheduleService
-    ) {
+    )
+    {
     }
 
     /**
@@ -77,7 +78,7 @@ class AttendanceService
             $denormalizedScheduleInfo = [
                 'scheduled_start_time' => $activeSchedule->start_time,
                 'scheduled_end_time' => $activeSchedule->end_time,
-                'scheduled_work_duration_minutes' => (int) ($activeSchedule->work_duration_hours * 60),
+                'scheduled_work_duration_minutes' => (int)($activeSchedule->work_duration_hours * 60),
             ];
         } else {
             Log::warning("No active or default work schedule found for user {$user->id} on {$workDate->toDateString()}. Attendance might use fallback or be less precise.");
@@ -118,7 +119,7 @@ class AttendanceService
 
             } elseif (is_null($attendance->clock_out_at)) {
                 // Ini adalah ABSEN PULANG
-                $minDurationBeforeClockOut = (int) AttendanceSetting::getByKey('min_duration_before_clock_out_minutes', 60);
+                $minDurationBeforeClockOut = (int)AttendanceSetting::getByKey('min_duration_before_clock_out_minutes', 60);
                 if ($attendance->clock_in_at->diffInMinutes($serverNow) < $minDurationBeforeClockOut) {
                     throw ValidationException::withMessages(['clock_out_scan' => "You cannot clock out yet. Minimum work duration: {$minDurationBeforeClockOut} minutes."]);
                 }
@@ -144,7 +145,7 @@ class AttendanceService
                 throw ValidationException::withMessages(['attendance' => 'You have already clocked in and out for this work date.']);
             }
             $attendance->save();
-//            $attendance->success_message = $successMessage;
+            $attendance->success_message = $successMessage;
             return $attendance;
         });
 
@@ -159,7 +160,7 @@ class AttendanceService
     {
         $officeLatitude = AttendanceSetting::getByKey('office_latitude');
         $officeLongitude = AttendanceSetting::getByKey('office_longitude');
-        $gpsRadiusMeters = (int) AttendanceSetting::getByKey('gps_radius_meters', 100);
+        $gpsRadiusMeters = (int)AttendanceSetting::getByKey('gps_radius_meters', 100);
 
         if ($officeLatitude && $officeLongitude) {
             $distance = $this->calculateDistance(
@@ -238,7 +239,7 @@ class AttendanceService
 
         $clockInTime = $attendance->clock_in_at;
         $scheduledStartTime = Carbon::parse($attendance->work_date->toDateString() . ' ' . $schedule->start_time);
-        $gracePeriodLate = $schedule->grace_period_late_minutes ?? (int) AttendanceSetting::getByKey('late_tolerance_minutes', 0);
+        $gracePeriodLate = $schedule->grace_period_late_minutes ?? (int)AttendanceSetting::getByKey('late_tolerance_minutes', 0);
         $effectiveScheduledStart = $scheduledStartTime->copy()->addMinutes($gracePeriodLate);
 
         if ($clockInTime->gt($effectiveScheduledStart)) {
@@ -281,7 +282,7 @@ class AttendanceService
             if ($schedule->crosses_midnight && $scheduledEndTime->lt($scheduledStartTime)) {
                 $scheduledEndTime->addDay();
             }
-            $graceEarly = $schedule->grace_period_early_leave_minutes ?? (int) AttendanceSetting::getByKey('early_leave_tolerance_minutes', 0);
+            $graceEarly = $schedule->grace_period_early_leave_minutes ?? (int)AttendanceSetting::getByKey('early_leave_tolerance_minutes', 0);
             $effectiveScheduledEnd = $scheduledEndTime->copy()->subMinutes($graceEarly);
 
             if ($clockOut->lt($effectiveScheduledEnd)) {
@@ -292,7 +293,7 @@ class AttendanceService
                 $scheduledEffectiveWorkMinutes = (int)($schedule->work_duration_hours * 60); // work_duration_hours adalah netto
                 if ($attendance->effective_work_minutes > $scheduledEffectiveWorkMinutes) {
                     $rawOvertime = $attendance->effective_work_minutes - $scheduledEffectiveWorkMinutes;
-                    $minOvertimeThreshold = (int) AttendanceSetting::getByKey('min_overtime_threshold_minutes', 0);
+                    $minOvertimeThreshold = (int)AttendanceSetting::getByKey('min_overtime_threshold_minutes', 0);
                     if ($rawOvertime >= $minOvertimeThreshold) {
                         $attendance->overtime_minutes = $rawOvertime;
                         $attendance->clock_out_status = self::STATUS_CLOCK_OUT_OVERTIME;
@@ -334,12 +335,14 @@ class AttendanceService
             try {
                 $parsedStart = Carbon::parse($startDate)->startOfDay();
                 $query->where('work_date', '>=', $parsedStart);
-            } catch (\Exception $e) { /* Ignore invalid date */ }
+            } catch (\Exception $e) { /* Ignore invalid date */
+            }
         } elseif ($endDate) {
             try {
                 $parsedEnd = Carbon::parse($endDate)->endOfDay();
                 $query->where('work_date', '<=', $parsedEnd);
-            } catch (\Exception $e) { /* Ignore invalid date */ }
+            } catch (\Exception $e) { /* Ignore invalid date */
+            }
         }
 
         return $query->paginate($perPage);
@@ -351,10 +354,11 @@ class AttendanceService
     public function correctAttendance(Attendance $attendance, array $data, User $admin): Attendance
     {
         return DB::transaction(function () use ($attendance, $data, $admin) {
-            $originalAttributes = $attendance->getAttributes();
-            $changedFieldsForLog = [];
+            $originalAttributes = $attendance->getAttributes(); // Ambil atribut asli sebelum perubahan
+            $changedFieldsForLog = []; // Array untuk menyimpan field apa saja yang berubah
+            $updateDataOnModel = []; // Array untuk field yang akan di-update langsung pada model
 
-            $updateData = [];
+            // 1. Tangani perubahan input langsung dari admin ($data)
             if (isset($data['work_date'])) {
                 $newWorkDate = Carbon::parse($data['work_date'])->startOfDay();
                 if ($attendance->work_date->ne($newWorkDate)) {
@@ -362,134 +366,138 @@ class AttendanceService
                         'old' => $attendance->work_date->toDateString(),
                         'new' => $newWorkDate->toDateString(),
                     ];
-                    $updateData['work_date'] = $newWorkDate;
+                    $updateDataOnModel['work_date'] = $newWorkDate;
                 }
             }
+
             if (isset($data['clock_in_at'])) {
                 $newClockInAt = $data['clock_in_at'] instanceof Carbon ? $data['clock_in_at'] : Carbon::parse($data['clock_in_at']);
-                if (!$attendance->clock_in_at || $attendance->clock_in_at->ne($newClockInAt)) {
+                if ((!$attendance->clock_in_at && $newClockInAt) || ($attendance->clock_in_at && $newClockInAt && $attendance->clock_in_at->ne($newClockInAt))) {
                     $changedFieldsForLog['clock_in_at'] = [
                         'old' => $attendance->clock_in_at?->format('Y-m-d H:i:s'),
                         'new' => $newClockInAt->format('Y-m-d H:i:s'),
                     ];
-                    $updateData['clock_in_at'] = $newClockInAt;
+                    $updateDataOnModel['clock_in_at'] = $newClockInAt;
                 }
             }
+
             if (isset($data['clock_out_at'])) {
                 $newClockOutAt = $data['clock_out_at'] instanceof Carbon ? $data['clock_out_at'] : ($data['clock_out_at'] ? Carbon::parse($data['clock_out_at']) : null);
-                if ((!$attendance->clock_out_at && $newClockOutAt) || ($attendance->clock_out_at && $newClockOutAt && $attendance->clock_out_at->ne($newClockOutAt)) || ($attendance->clock_out_at && !$newClockOutAt)) {
+                if ((!$attendance->clock_out_at && $newClockOutAt) || ($attendance->clock_out_at && $newClockOutAt && $attendance->clock_out_at->ne($newClockOutAt)) || ($attendance->clock_out_at && is_null($newClockOutAt))) {
                     $changedFieldsForLog['clock_out_at'] = [
                         'old' => $attendance->clock_out_at?->format('Y-m-d H:i:s'),
                         'new' => $newClockOutAt?->format('Y-m-d H:i:s'),
                     ];
-                    $updateData['clock_out_at'] = $newClockOutAt;
+                    $updateDataOnModel['clock_out_at'] = $newClockOutAt;
                 }
             }
 
-            $attendance->fill($updateData);
+            $attendance->fill($updateDataOnModel);
 
-            $otherFieldsToLog = ['clock_in_status', 'clock_in_notes', 'clock_out_status', 'clock_out_notes', 'work_schedule_id'];
-            foreach ($otherFieldsToLog as $key) {
-                if (array_key_exists($key, $data) && $originalAttributes[$key] != $data[$key]) {
+            $otherFieldsToLogAndUpdate = ['clock_in_notes', 'clock_out_notes', 'work_schedule_id'];
+            foreach ($otherFieldsToLogAndUpdate as $key) {
+                if (array_key_exists($key, $data) && ($originalAttributes[$key] ?? null) != $data[$key]) {
                     $changedFieldsForLog[$key] = [
-                        'old' => $originalAttributes[$key],
+                        'old' => $originalAttributes[$key] ?? null,
                         'new' => $data[$key],
                     ];
                     $attendance->{$key} = $data[$key];
                 }
             }
 
-            $activeSchedule = $attendance->work_schedule_id ? WorkSchedule::find($attendance->work_schedule_id) : $this->workScheduleService->getUserActiveScheduleForDate($attendance->user, $attendance->work_date);
+            // 2. Dapatkan jadwal kerja yang relevan
+            $activeSchedule = $attendance->work_schedule_id
+                ? WorkSchedule::find($attendance->work_schedule_id)
+                : $this->workScheduleService->getUserActiveScheduleForDate($attendance->user, $attendance->work_date);
 
-            $recalculateMetrics = count(array_intersect_key($changedFieldsForLog, array_flip(['clock_in_at', 'clock_out_at']))) > 0 || isset($data['work_schedule_id']);
+            // 3. Ambil nilai metrik asli dengan aman dan hitung ulang
+            $originalLatenessMinutes = $originalAttributes['lateness_minutes'] ?? 0;
+            $originalClockInStatus = $originalAttributes['clock_in_status'] ?? null;
+            $originalWorkDurationMinutes = $originalAttributes['work_duration_minutes'] ?? null;
+            $originalEffectiveWorkMinutes = $originalAttributes['effective_work_minutes'] ?? null;
+            $originalOvertimeMinutes = $originalAttributes['overtime_minutes'] ?? 0;
+            $originalEarlyLeaveMinutes = $originalAttributes['early_leave_minutes'] ?? 0;
+            $originalClockOutStatus = $originalAttributes['clock_out_status'] ?? null;
 
-            if ($recalculateMetrics || isset($data['clock_in_status'])) {
-                if(!isset($data['clock_in_status'])) {
-                    $this->calculateInitialClockInMetrics($attendance, $activeSchedule);
-                } else {
-                    if ($originalAttributes['clock_in_status'] != $data['clock_in_status']) {
-                        $changedFieldsForLog['clock_in_status'] = ['old' => $originalAttributes['clock_in_status'], 'new' => $data['clock_in_status']];
-                    }
-                    $attendance->clock_in_status = $data['clock_in_status'];
-
-                    if ($attendance->clock_in_status == self::STATUS_CLOCK_IN_ON_TIME) {
-                        $attendance->lateness_minutes = 0;
-                    } else if ($attendance->clock_in_status == self::STATUS_CLOCK_IN_LATE && $attendance->clock_in_at && $activeSchedule) {
-                        // Logika hitung lateness yang sudah dilengkapi
-                        $clockInTime = $attendance->clock_in_at;
-                        $scheduledStartTime = Carbon::parse($attendance->work_date->toDateString() . ' ' . $activeSchedule->start_time);
-                        $gracePeriodLate = $activeSchedule->grace_period_late_minutes ?? (int) AttendanceSetting::getByKey('late_tolerance_minutes', 0);
-                        $effectiveScheduledStart = $scheduledStartTime->copy()->addMinutes($gracePeriodLate);
-
-                        if ($clockInTime->gt($effectiveScheduledStart)) {
-                            $attendance->lateness_minutes = $effectiveScheduledStart->diffInMinutes($clockInTime);
-                        } else {
-                            // Jika status LATE tapi waktu tidak, lateness tetap dihitung berdasarkan perbedaan aktual dari effective start.
-                            // Jika admin ingin lateness > 0, waktu clock_in_at juga harus disesuaikan.
-                            $attendance->lateness_minutes = max(0, $effectiveScheduledStart->diffInMinutes($clockInTime));
-                        }
-                    }
-                    // Tidak ada else, jika status lain, lateness_minutes tidak diubah kecuali clock_in_at juga berubah
+            if (isset($data['clock_in_status'])) {
+                if ($originalClockInStatus != $data['clock_in_status']) {
+                    $changedFieldsForLog['clock_in_status'] = ['old' => $originalClockInStatus, 'new' => $data['clock_in_status']];
                 }
+                $attendance->clock_in_status = $data['clock_in_status'];
+                if ($attendance->clock_in_status == self::STATUS_CLOCK_IN_ON_TIME) {
+                    $attendance->lateness_minutes = 0;
+                } elseif ($attendance->clock_in_status == self::STATUS_CLOCK_IN_LATE && $attendance->clock_in_at && $activeSchedule) {
+                    $clockInTime = $attendance->clock_in_at;
+                    $scheduledStartTime = Carbon::parse($attendance->work_date->toDateString() . ' ' . $activeSchedule->start_time);
+                    $gracePeriodLate = $activeSchedule->grace_period_late_minutes ?? (int) AttendanceSetting::getByKey('late_tolerance_minutes', 0);
+                    $effectiveScheduledStart = $scheduledStartTime->copy()->addMinutes($gracePeriodLate);
+                    $calculatedLateness = max(0, $clockInTime->diffInMinutes($effectiveScheduledStart, false));
+                    $attendance->lateness_minutes = $clockInTime->gt($effectiveScheduledStart) ? $calculatedLateness : 0;
+                }
+            } else {
+                $this->calculateInitialClockInMetrics($attendance, $activeSchedule);
             }
 
-            if ($recalculateMetrics || isset($data['clock_out_status'])) {
-                if(!isset($data['clock_out_status'])) {
-                    $this->calculateWorkDurationsAndStatus($attendance, $activeSchedule);
-                } else {
-                    if ($originalAttributes['clock_out_status'] != $data['clock_out_status']) {
-                        $changedFieldsForLog['clock_out_status'] = ['old' => $originalAttributes['clock_out_status'], 'new' => $data['clock_out_status']];
-                    }
-                    $attendance->clock_out_status = $data['clock_out_status'];
-                    if ($attendance->clock_in_at && $attendance->clock_out_at) {
-                        $attendance->work_duration_minutes = $attendance->clock_in_at->diffInMinutes($attendance->clock_out_at);
-                        $breakMins = $activeSchedule?->break_duration_minutes ?? 0;
-                        $attendance->effective_work_minutes = max(0, $attendance->work_duration_minutes - $breakMins);
+            if (isset($data['clock_out_status'])) {
+                if ($originalClockOutStatus != $data['clock_out_status']) {
+                    $changedFieldsForLog['clock_out_status'] = ['old' => $originalClockOutStatus, 'new' => $data['clock_out_status']];
+                }
+                $attendance->clock_out_status = $data['clock_out_status'];
+                if ($attendance->clock_in_at && $attendance->clock_out_at) {
+                    $attendance->work_duration_minutes = $attendance->clock_in_at->diffInMinutes($attendance->clock_out_at);
+                    $breakMins = $activeSchedule?->break_duration_minutes ?? 0;
+                    $attendance->effective_work_minutes = max(0, $attendance->work_duration_minutes - $breakMins);
 
-                        // Sesuaikan overtime/early leave berdasarkan status yang di-override
-                        if ($attendance->clock_out_status == self::STATUS_CLOCK_OUT_ON_TIME) {
-                            $attendance->overtime_minutes = 0;
-                            $attendance->early_leave_minutes = 0;
-                        } elseif ($attendance->clock_out_status == self::STATUS_CLOCK_OUT_EARLY) {
-                            $attendance->overtime_minutes = 0;
-                            // early_leave_minutes mungkin perlu dihitung ulang jika waktu clock_out juga berubah
-                            // atau biarkan jika hanya status yang berubah (admin menentukan itu early)
-                            if ($activeSchedule && $attendance->clock_out_at) {
-                                $scheduledEndTime = Carbon::parse($attendance->work_date->toDateString() . ' ' . $activeSchedule->end_time);
-                                if ($activeSchedule->crosses_midnight && $scheduledEndTime->lt(Carbon::parse($attendance->work_date->toDateString() . ' ' . $activeSchedule->start_time))) {
-                                    $scheduledEndTime->addDay();
-                                }
-                                $graceEarly = $activeSchedule->grace_period_early_leave_minutes ?? (int) AttendanceSetting::getByKey('early_leave_tolerance_minutes', 0);
-                                $effectiveScheduledEnd = $scheduledEndTime->copy()->subMinutes($graceEarly);
-                                if ($attendance->clock_out_at->lt($effectiveScheduledEnd)) {
-                                    $attendance->early_leave_minutes = $attendance->clock_out_at->diffInMinutes($effectiveScheduledEnd);
-                                } else {
-                                    $attendance->early_leave_minutes = 0; // Tidak early jika waktu tidak mendukung
-                                }
-                            }
-                        } elseif ($attendance->clock_out_status == self::STATUS_CLOCK_OUT_OVERTIME) {
-                            $attendance->early_leave_minutes = 0;
-                            // overtime_minutes mungkin perlu dihitung ulang jika waktu clock_out juga berubah
-                            if ($activeSchedule && $attendance->effective_work_minutes) {
-                                $scheduledEffectiveWorkMinutes = (int)($activeSchedule->work_duration_hours * 60);
-                                if ($attendance->effective_work_minutes > $scheduledEffectiveWorkMinutes) {
-                                    $rawOvertime = $attendance->effective_work_minutes - $scheduledEffectiveWorkMinutes;
-                                    // Threshold tidak diterapkan jika status di-override ke Overtime, admin yang menentukan
-                                    $attendance->overtime_minutes = $rawOvertime;
-                                } else {
-                                    $attendance->overtime_minutes = 0; // Tidak overtime jika waktu tidak mendukung
-                                }
-                            }
-                        }
-                    } else {
-                        $attendance->work_duration_minutes = null;
-                        $attendance->effective_work_minutes = null;
+                    if ($attendance->clock_out_status == self::STATUS_CLOCK_OUT_ON_TIME) {
+                        $attendance->overtime_minutes = 0; $attendance->early_leave_minutes = 0;
+                    } elseif ($attendance->clock_out_status == self::STATUS_CLOCK_OUT_EARLY && $activeSchedule) {
                         $attendance->overtime_minutes = 0;
+                        $scheduledEndTime = Carbon::parse($attendance->work_date->toDateString() . ' ' . $activeSchedule->end_time);
+                        if ($activeSchedule->crosses_midnight && $scheduledEndTime->lt(Carbon::parse($attendance->work_date->toDateString() . ' ' . $activeSchedule->start_time))) {
+                            $scheduledEndTime->addDay();
+                        }
+                        $graceEarly = $activeSchedule->grace_period_early_leave_minutes ?? (int) AttendanceSetting::getByKey('early_leave_tolerance_minutes', 0);
+                        $effectiveScheduledEnd = $scheduledEndTime->copy()->subMinutes($graceEarly);
+                        $attendance->early_leave_minutes = $attendance->clock_out_at->lt($effectiveScheduledEnd) ? max(0, $effectiveScheduledEnd->diffInMinutes($attendance->clock_out_at, false)) : 0;
+                    } elseif ($attendance->clock_out_status == self::STATUS_CLOCK_OUT_OVERTIME && $activeSchedule && $attendance->effective_work_minutes) {
                         $attendance->early_leave_minutes = 0;
+                        $scheduledEffectiveWorkMinutes = (int)($activeSchedule->work_duration_hours * 60);
+                        $attendance->overtime_minutes = max(0, $attendance->effective_work_minutes - $scheduledEffectiveWorkMinutes);
+                    } else {
+                        $attendance->overtime_minutes = 0; $attendance->early_leave_minutes = 0;
                     }
+                } else {
+                    $attendance->work_duration_minutes = null; $attendance->effective_work_minutes = null;
+                    $attendance->overtime_minutes = 0; $attendance->early_leave_minutes = 0;
                 }
+            } else {
+                $this->calculateWorkDurationsAndStatus($attendance, $activeSchedule);
             }
 
+            // 4. Bandingkan metrik yang telah dihitung ulang dengan nilai aslinya
+            if ($attendance->lateness_minutes != $originalLatenessMinutes) {
+                $changedFieldsForLog['lateness_minutes'] = ['old' => $originalLatenessMinutes, 'new' => $attendance->lateness_minutes];
+            }
+            if (!isset($changedFieldsForLog['clock_in_status']) && $attendance->clock_in_status != $originalClockInStatus) {
+                $changedFieldsForLog['clock_in_status'] = ['old' => $originalClockInStatus, 'new' => $attendance->clock_in_status];
+            }
+            if (($attendance->work_duration_minutes !== null || $originalWorkDurationMinutes !== null) && $attendance->work_duration_minutes != $originalWorkDurationMinutes) {
+                $changedFieldsForLog['work_duration_minutes'] = ['old' => $originalWorkDurationMinutes, 'new' => $attendance->work_duration_minutes];
+            }
+            if (($attendance->effective_work_minutes !== null || $originalEffectiveWorkMinutes !== null) && $attendance->effective_work_minutes != $originalEffectiveWorkMinutes) {
+                $changedFieldsForLog['effective_work_minutes'] = ['old' => $originalEffectiveWorkMinutes, 'new' => $attendance->effective_work_minutes];
+            }
+            if ($attendance->overtime_minutes != $originalOvertimeMinutes) {
+                $changedFieldsForLog['overtime_minutes'] = ['old' => $originalOvertimeMinutes, 'new' => $attendance->overtime_minutes];
+            }
+            if ($attendance->early_leave_minutes != $originalEarlyLeaveMinutes) {
+                $changedFieldsForLog['early_leave_minutes'] = ['old' => $originalEarlyLeaveMinutes, 'new' => $attendance->early_leave_minutes];
+            }
+            if (!isset($changedFieldsForLog['clock_out_status']) && ($attendance->clock_out_status !== null || $originalClockOutStatus !== null) && $attendance->clock_out_status != $originalClockOutStatus) {
+                $changedFieldsForLog['clock_out_status'] = ['old' => $originalClockOutStatus, 'new' => $attendance->clock_out_status];
+            }
+
+            // 5. Buat entri log
             $reasonForCorrection = $data['admin_correction_notes'] ?? 'Correction by administrator.';
             foreach ($changedFieldsForLog as $column => $values) {
                 AttendanceCorrectionLog::create([
@@ -499,15 +507,18 @@ class AttendanceService
                     'old_value' => is_array($values['old']) || is_object($values['old']) ? json_encode($values['old']) : (string)$values['old'],
                     'new_value' => is_array($values['new']) || is_object($values['new']) ? json_encode($values['new']) : (string)$values['new'],
                     'reason' => $reasonForCorrection,
-                    'ip_address_of_admin' => request()->ip(),
+                    'ip_address_of_admin' => request()?->ip(),
                 ]);
             }
 
+            // 6. Tandai record absensi sebagai telah dikoreksi dan simpan
             if (count($changedFieldsForLog) > 0) {
                 $attendance->is_manually_corrected = true;
                 $attendance->last_corrected_by = $admin->id;
                 $attendance->last_correction_at = now();
-                $attendance->correction_summary_notes = trim(($attendance->correction_summary_notes ?? '') . "\n[" . now()->toDateTimeString() . "] Admin ({$admin->name}): {$reasonForCorrection}");
+                $newCorrectionNote = "[" . now()->toDateTimeString() . "] Admin ({$admin->name} - ID:{$admin->id}): {$reasonForCorrection}";
+                $currentSummary = $originalAttributes['correction_summary_notes'] ?? '';
+                $attendance->correction_summary_notes = trim($currentSummary . ($currentSummary ? "\n" : '') . $newCorrectionNote);
             }
 
             $attendance->save();

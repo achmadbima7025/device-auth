@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -52,11 +53,11 @@ class UserWorkScheduleAssignment extends Model
     /**
      * Scope a query to only include assignments active on a given date.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  Carbon|string|null $date The date to check against. Defaults to today.
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @param Builder $query
+     * @param string|Carbon|null $date The date to check against. Defaults to today.
+     * @return Builder
      */
-    public function scopeActiveOn($query, $date = null)
+    public function scopeActiveOn(Builder $query, Carbon|string|null $date = null): Builder
     {
         $targetDate = $date ? Carbon::parse($date)->toDateString() : Carbon::today()->toDateString();
 

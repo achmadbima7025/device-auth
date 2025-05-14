@@ -54,7 +54,7 @@ class User extends Authenticatable
         return $this->hasMany(UserDevice::class);
     }
 
-    public function isAdmin()
+    public function isAdmin(): bool
     {
         return $this->role === 'admin';
     }
