@@ -24,6 +24,7 @@ Route::middleware(['auth:sanctum', VerifyRegisteredDevice::class])->group(functi
 
     Route::post('/attendance/scan', [AttendanceController::class, 'scan'])->name('attendance.scan');
     Route::get('/attendance/history', [AttendanceController::class, 'getHistory'])->name('attendance.history');
+    Route::get('/attendance/statistics', [AttendanceController::class, 'getStatistics'])->name('attendance.statistics');
 
     // Rute API lainnya yang memerlukan autentikasi dan verifikasi perangkat
     Route::get('/protected-data', function() {
@@ -46,31 +47,31 @@ Route::prefix('admin')
 
         // Manajemen Absensi oleh Admin
         Route::get('/attendance/reports', [AdminAttendanceController::class, 'viewReports'])->name('attendance.reports');
-        Route::post('/attendance/corrections/{attendance}', [AdminAttendanceController::class, 'makeCorrection'])->name('attendance.correction'); // {attendance} akan di-resolve
+        Route::post('/attendance/{attendance}/correct', [AdminAttendanceController::class, 'makeCorrection'])->name('attendance.correction'); // {attendance} akan di-resolve
         Route::get('/attendance/settings', [AdminAttendanceController::class, 'getSettings'])->name('attendance.settings.index');
-        Route::post('/attendance/settings', [AdminAttendanceController::class, 'updateSettings'])->name('attendance.settings.update');
+        Route::put('/attendance/settings', [AdminAttendanceController::class, 'updateSettings'])->name('attendance.settings.update');
 
         // Manajemen QR Code oleh Admin (diasumsikan di AdminAttendanceController)
-        Route::post('/qrcodes/generate-daily', [AdminAttendanceController::class, 'generateDailyQr'])->name('qrcodes.generate.daily');
-        Route::get('/qrcodes/active', [AdminAttendanceController::class, 'getActiveQrCode'])->name('qrcodes.active');
+        Route::post('/attendance/qr/generate', [AdminAttendanceController::class, 'generateDailyQr'])->name('qrcodes.generate.daily');
+        Route::get('/attendance/qr/active', [AdminAttendanceController::class, 'getActiveQrCode'])->name('qrcodes.active');
         // Anda bisa menambahkan CRUD untuk QR Code jika diperlukan (list, show, update, delete)
 
         // Manajemen Jadwal Kerja oleh Admin (diasumsikan di AdminAttendanceController)
-        Route::get('/work-schedules', [AdminAttendanceController::class, 'listWorkSchedules'])->name('work-schedules.list');
-        Route::post('/work-schedules', [AdminAttendanceController::class, 'createWorkSchedule'])->name('work-schedules.create');
-        Route::get('/work-schedules/{workSchedule}', [AdminAttendanceController::class, 'showWorkSchedule']) // Metode showWorkSchedule perlu dibuat di controller
+        Route::get('/attendance/schedules', [AdminAttendanceController::class, 'listWorkSchedules'])->name('work-schedules.list');
+        Route::post('/attendance/schedules', [AdminAttendanceController::class, 'createWorkSchedule'])->name('work-schedules.create');
+        Route::get('/attendance/schedules/{workSchedule}', [AdminAttendanceController::class, 'showWorkSchedule']) // Metode showWorkSchedule perlu dibuat di controller
         ->name('work-schedules.show'); // {workSchedule} akan di-resolve
-        Route::put('/work-schedules/{workSchedule}', [AdminAttendanceController::class, 'updateWorkSchedule'])->name('work-schedules.update');
-        Route::delete('/work-schedules/{workSchedule}', [AdminAttendanceController::class, 'deleteWorkSchedule']) // Metode deleteWorkSchedule perlu dibuat
+        Route::put('/attendance/schedules/{workSchedule}', [AdminAttendanceController::class, 'updateWorkSchedule'])->name('work-schedules.update');
+        Route::delete('/attendance/schedules/{workSchedule}', [AdminAttendanceController::class, 'deleteWorkSchedule']) // Metode deleteWorkSchedule perlu dibuat
         ->name('work-schedules.delete');
 
         // Penugasan Jadwal Kerja ke Pengguna oleh Admin
-        Route::get('/users/{user}/schedule-assignments', [AdminAttendanceController::class, 'listUserScheduleAssignments']) // Metode ini perlu dibuat
+        Route::get('/attendance/users/{user}/schedule-assignments', [AdminAttendanceController::class, 'listUserScheduleAssignments']) // Metode ini perlu dibuat
         ->name('users.schedule-assignments.list');
-        Route::post('/work-schedules/assign-to-user', [AdminAttendanceController::class, 'assignScheduleToUser'])->name('work-schedules.assign');
-        // Anda bisa menambahkan endpoint untuk update atau delete assignment jika diperlukan
-        // Route::put('/schedule-assignments/{userWorkScheduleAssignment}', [AdminAttendanceController::class, 'updateUserScheduleAssignment']);
-        // Route::delete('/schedule-assignments/{userWorkScheduleAssignment}', [AdminAttendanceController::class, 'deleteUserScheduleAssignment']);
+        Route::post('/attendance/user-schedules', [AdminAttendanceController::class, 'assignScheduleToUser'])->name('work-schedules.assign');
+        // Endpoint untuk update atau delete assignment
+        Route::put('/attendance/schedule-assignments/{userWorkScheduleAssignment}', [AdminAttendanceController::class, 'updateScheduleAssignment'])->name('schedule-assignments.update');
+        Route::delete('/attendance/schedule-assignments/{userWorkScheduleAssignment}', [AdminAttendanceController::class, 'deleteScheduleAssignment'])->name('schedule-assignments.delete');
 
 
         // Contoh rute admin lainnya

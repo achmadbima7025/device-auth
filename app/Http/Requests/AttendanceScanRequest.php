@@ -6,8 +6,6 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Validator;
 
-//use Illuminate\Validation\Validator;
-
 class AttendanceScanRequest extends FormRequest
 {
     /**
@@ -46,29 +44,29 @@ class AttendanceScanRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'qr_payload.required' => 'Payload QR code wajib diisi.',
-            'qr_payload.array' => 'Payload QR code harus berupa array.',
-            'qr_payload.type.required' => 'Tipe dalam payload QR wajib diisi.',
-            'qr_payload.type.in' => 'Tipe payload QR tidak valid untuk absensi.',
-            'qr_payload.token.required' => 'Token dalam payload QR wajib diisi.',
-            'qr_payload.date.required' => 'Tanggal dalam payload QR wajib diisi.',
-            'qr_payload.date.date_format' => 'Format tanggal dalam payload QR harus YYYY-MM-DD.',
-            'client_timestamp.required' => 'Timestamp klien wajib diisi.',
-            'client_timestamp.date_format' => 'Format timestamp klien tidak valid (harus ISO 8601).',
-            'location.array' => 'Data lokasi harus berupa array.',
-            'location.latitude.required_with' => 'Latitude wajib diisi jika data lokasi diberikan.',
-            'location.latitude.numeric' => 'Latitude harus berupa angka.',
-            'location.latitude.between' => 'Latitude harus antara -90 dan 90.',
-            'location.longitude.required_with' => 'Longitude wajib diisi jika data lokasi diberikan.',
-            'location.longitude.numeric' => 'Longitude harus berupa angka.',
-            'location.longitude.between' => 'Longitude harus antara -180 dan 180.',
+            'qr_payload.required' => 'QR code payload is required.',
+            'qr_payload.array' => 'QR code payload must be an array.',
+            'qr_payload.type.required' => 'Type in QR payload is required.',
+            'qr_payload.type.in' => 'QR payload type is not valid for attendance.',
+            'qr_payload.token.required' => 'Token in QR payload is required.',
+            'qr_payload.date.required' => 'Date in QR payload is required.',
+            'qr_payload.date.date_format' => 'Date format in QR payload must be YYYY-MM-DD.',
+            'client_timestamp.required' => 'Client timestamp is required.',
+            'client_timestamp.date_format' => 'Client timestamp format is invalid (must be ISO 8601).',
+            'location.array' => 'Location data must be an array.',
+            'location.latitude.required_with' => 'Latitude is required when location data is provided.',
+            'location.latitude.numeric' => 'Latitude must be a number.',
+            'location.latitude.between' => 'Latitude must be between -90 and 90.',
+            'location.longitude.required_with' => 'Longitude is required when location data is provided.',
+            'location.longitude.numeric' => 'Longitude must be a number.',
+            'location.longitude.between' => 'Longitude must be between -180 and 180.',
         ];
     }
 
-    protected function failedValidation(Validator|\Illuminate\Contracts\Validation\Validator $validator): void
+    protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator): void
     {
         throw new HttpResponseException(response()->json([
-            'message'   => 'Data yang diberikan tidak valid.',
+            'message'   => 'The provided data is invalid.',
             'errors'    => $validator->errors(),
         ], 422));
     }

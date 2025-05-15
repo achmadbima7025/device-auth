@@ -26,7 +26,7 @@ class AttendanceController extends Controller
             $deviceIdentifier = $request->header('X-Device-ID');
             $validatedData = $request->validated();
 
-            $result = $this->attendanceService->processScan( // Menangkap hasil sebagai array
+            $result = $this->attendanceService->processScan( // Capturing result as array
                 $user,
                 $validatedData['qr_payload'],
                 $validatedData['client_timestamp'],
@@ -35,7 +35,7 @@ class AttendanceController extends Controller
             );
 
             return response()->json([
-                'message' => $result['message'], // Menggunakan pesan dari service
+                'message' => $result['message'], // Using message from service
                 'data' => new AttendanceResource($result['attendance']->loadMissing('workSchedule', 'clockInDevice', 'clockOutDevice')),
             ]);
 
@@ -81,6 +81,39 @@ class AttendanceController extends Controller
                 'exception' => get_class($e),
             ]);
             return response()->json(['message' => 'An internal server error occurred while fetching history.'], 500);
+        }
+    }
+
+    /**
+     * Get attendance statistics for the authenticated user
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function getStatistics(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'start_date' => 'sometimes|date_format:Y-m-d',
+            'end_date' => 'sometimes|date_format:Y-m-d|after_or_equal:start_date',
+        ]);
+
+        try {
+            $user = $request->user();
+            $startDate = $validated['start_date'] ?? null;
+            $endDate = $validated['end_date'] ?? null;
+
+            $statistics = $this->attendanceService->getAttendanceStatistics($user, $startDate, $endDate);
+
+            return response()->json([
+                'message' => 'Attendance statistics retrieved successfully.',
+                'data' => $statistics,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error("Error fetching attendance statistics for user {$request->user()->id}: {$e->getMessage()}", [
+                'exception' => get_class($e),
+            ]);
+            return response()->json(['message' => 'An internal server error occurred while fetching statistics.'], 500);
         }
     }
 }

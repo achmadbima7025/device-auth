@@ -92,4 +92,50 @@ class WorkScheduleService
         $workSchedule->update($data);
         return $workSchedule;
     }
+
+    /**
+     * Memperbarui penugasan jadwal kerja pengguna.
+     *
+     * @param UserWorkScheduleAssignment $assignment
+     * @param array $data
+     * @param User|null $updatedBy Admin/Manajer yang memperbarui
+     * @return UserWorkScheduleAssignment
+     */
+    public function updateUserScheduleAssignment(UserWorkScheduleAssignment $assignment, array $data, ?User $updatedBy = null): UserWorkScheduleAssignment
+    {
+        // Jika ada perubahan tanggal mulai, perlu menyesuaikan penugasan lain
+        if (isset($data['effective_start_date']) && $data['effective_start_date'] != $assignment->effective_start_date->toDateString()) {
+            $parsedStartDate = Carbon::parse($data['effective_start_date']);
+
+            // Akhiri penugasan aktif lain untuk pengguna ini jika ada dan tumpang tindih
+            UserWorkScheduleAssignment::where('user_id', $assignment->user_id)
+                ->where('id', '!=', $assignment->id)
+                ->where(function ($query) use ($parsedStartDate) {
+                    $query->whereNull('effective_end_date') // Yang masih aktif tanpa batas akhir
+                    ->orWhere('effective_end_date', '>=', $parsedStartDate->toDateString()); // Yang berakhir pada atau setelah jadwal baru dimulai
+                })
+                ->where('effective_start_date', '<', $parsedStartDate->toDateString()) // Hanya yang dimulai sebelum jadwal baru
+                ->update(['effective_end_date' => $parsedStartDate->copy()->subDay()->toDateString()]);
+        }
+
+        // Tambahkan catatan tentang siapa yang memperbarui jika ada
+        if ($updatedBy) {
+            $data['assignment_notes'] = ($data['assignment_notes'] ?? $assignment->assignment_notes ?? '')
+                . "\n[Updated by " . $updatedBy->name . " on " . now()->format('Y-m-d H:i:s') . "]";
+        }
+
+        $assignment->update($data);
+        return $assignment;
+    }
+
+    /**
+     * Menghapus penugasan jadwal kerja pengguna.
+     *
+     * @param UserWorkScheduleAssignment $assignment
+     * @return bool
+     */
+    public function deleteUserScheduleAssignment(UserWorkScheduleAssignment $assignment): bool
+    {
+        return $assignment->delete();
+    }
 }

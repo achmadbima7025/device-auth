@@ -13,7 +13,7 @@ class QrCode extends Model
     public const string TYPE_DAILY = 'daily';
     public const string TYPE_STATIC_LOCATION = 'static_location';
     public const string TYPE_SINGLE_USE = 'single_use';
-public const string TYPE_SHIFT_SPECIFIC = 'shift_specific';
+    public const string TYPE_SHIFT_SPECIFIC = 'shift_specific';
 
     protected $fillable = [
         'is_active',

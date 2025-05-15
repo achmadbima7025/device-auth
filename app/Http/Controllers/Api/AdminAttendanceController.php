@@ -28,6 +28,7 @@ use App\Http\Requests\AssignWorkScheduleRequest;
 use App\Services\Attendance\WorkScheduleService;
 use App\Http\Requests\AttendanceCorrectionRequest;
 use App\Http\Requests\UpdateAttendanceSettingsRequest;
+use App\Http\Requests\UpdateUserWorkScheduleAssignmentRequest;
 use App\Http\Resources\UserWorkScheduleAssignmentResource;
 use App\Http\Resources\UserWorkScheduleAssignmentCollection;
 
@@ -334,5 +335,73 @@ class AdminAttendanceController extends Controller
             ->additional(['message' => 'Work schedule assigned to user successfully.'])
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * Memperbarui penugasan jadwal kerja pengguna.
+     *
+     * @param UpdateUserWorkScheduleAssignmentRequest $request
+     * @param UserWorkScheduleAssignment $userWorkScheduleAssignment
+     * @return JsonResponse
+     */
+    public function updateScheduleAssignment(UpdateUserWorkScheduleAssignmentRequest $request, UserWorkScheduleAssignment $userWorkScheduleAssignment): JsonResponse
+    {
+        try {
+            $validatedData = $request->validated();
+            $admin = $request->user();
+
+            // Jika work_schedule_id diubah, pastikan jadwal kerja ada
+            if (isset($validatedData['work_schedule_id'])) {
+                $workSchedule = WorkSchedule::findOrFail($validatedData['work_schedule_id']);
+                // Pastikan jadwal kerja aktif
+                if (!$workSchedule->is_active) {
+                    return response()->json(['message' => 'Cannot assign inactive work schedule.'], 422);
+                }
+            }
+
+            $assignment = $this->workScheduleService->updateUserScheduleAssignment(
+                $userWorkScheduleAssignment,
+                $validatedData,
+                $admin
+            );
+
+            return new UserWorkScheduleAssignmentResource($assignment->fresh()->load(['user:id,name', 'workSchedule:id,name', 'assignedBy:id,name']))
+                ->additional(['message' => 'Work schedule assignment updated successfully.'])
+                ->response();
+        } catch (Exception $e) {
+            Log::error("Error updating work schedule assignment ID {$userWorkScheduleAssignment->id}: {$e->getMessage()}");
+            return response()->json(['message' => 'An unexpected error occurred while updating the work schedule assignment.'], 500);
+        }
+    }
+
+    /**
+     * Menghapus penugasan jadwal kerja pengguna.
+     *
+     * @param UserWorkScheduleAssignment $userWorkScheduleAssignment
+     * @return JsonResponse
+     */
+    public function deleteScheduleAssignment(UserWorkScheduleAssignment $userWorkScheduleAssignment): JsonResponse
+    {
+        try {
+            // Cek apakah penugasan ini sedang digunakan dalam absensi
+            $hasAttendances = Attendance::where('user_id', $userWorkScheduleAssignment->user_id)
+                ->where('work_schedule_id', $userWorkScheduleAssignment->work_schedule_id)
+                ->whereBetween('work_date', [
+                    $userWorkScheduleAssignment->effective_start_date,
+                    $userWorkScheduleAssignment->effective_end_date ?? now()->addYears(10) // Jika tidak ada tanggal akhir, gunakan tanggal jauh di masa depan
+                ])
+                ->exists();
+
+            if ($hasAttendances) {
+                return response()->json(['message' => 'Cannot delete work schedule assignment. It is being used in attendance records.'], 409);
+            }
+
+            $this->workScheduleService->deleteUserScheduleAssignment($userWorkScheduleAssignment);
+
+            return response()->json(['message' => 'Work schedule assignment deleted successfully.'], 200);
+        } catch (Exception $e) {
+            Log::error("Error deleting work schedule assignment ID {$userWorkScheduleAssignment->id}: {$e->getMessage()}");
+            return response()->json(['message' => 'An unexpected error occurred while deleting the work schedule assignment.'], 500);
+        }
     }
 }

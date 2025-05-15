@@ -17,8 +17,6 @@ class AdminDeviceController extends Controller
     public function __construct(DeviceManagementService $deviceService)
     {
         $this->deviceService = $deviceService;
-        // Terapkan middleware admin di sini atau di rute
-        // $this->middleware('is.admin'); // Contoh
     }
 
     public function listAllDevices(Request $request): JsonResponse
